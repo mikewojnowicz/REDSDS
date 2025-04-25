@@ -183,7 +183,7 @@ class InitialContinuousDistribution(nn.Module):
         sigma=None,
         takes_ctrl=False,
         max_scale=1.0,
-        scale_nonlinearity="softplus",
+        scale_nonlinearity="sigmoid",
     ):
         super().__init__()
         assert (
@@ -252,7 +252,7 @@ class ContinuousStateTransition(nn.Module):
         sigma=None,
         takes_ctrl=False,
         max_scale=1.0,
-        scale_nonlinearity="softplus",
+        scale_nonlinearity="sigmoid",
     ):
         """A torch module that models p(x[t] | x[t-1], z[t]).
 
@@ -425,7 +425,7 @@ class GaussianDistributionOutput(nn.Module):
         use_trainable_cov=True,
         sigma=None,
         max_scale=1.0,
-        scale_nonlinearity="softplus",
+        scale_nonlinearity="sigmoid",
     ):
         """A Gaussian distribution on top of a neural network.
 
