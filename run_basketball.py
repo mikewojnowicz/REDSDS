@@ -214,14 +214,13 @@ if __name__ == "__main__":
                 loss_history_path=os.path.join(config["log_dir"], f"loss_history_{step}.npy")
                 np.save(loss_history_path, loss_history)
             
-                # Make plot of cumulative loss and save to disk.
-                loss__cumulative_mean = np.cumsum(loss_history) / np.arange(1, len(loss_history) + 1)
-                plt.plot(loss__cumulative_mean[:step])
+                # Make plot of loss and save to disk.
+                plt.plot(loss_history-min(loss_history))
                 plt.yscale('log')  # log scale for y-axis
                 plt.xlabel("Step")
-                plt.ylabel("Cumulative Mean (log scale)")
-                loss__cumulative_mean_path=os.path.join(config["log_dir"], f"loss__cumulative_mean_{step}.pdf")
-                plt.savefig(loss__cumulative_mean_path)
+                plt.ylabel("Log (loss - min loss)")
+                loss_plot_path=os.path.join(config["log_dir"], f"loss_history_{step}.pdf")
+                plt.savefig(loss_plot_path)
                 plt.close("all")
 
                 # Save test set forecasts 
@@ -253,14 +252,13 @@ if __name__ == "__main__":
     loss_history_path=os.path.join(config["train_history_dir"], f"loss_history_{step}.npy")
     np.save(loss_history_path, loss_history)
   
-    # Make plot of cumulative loss and save to disk.
-    loss__cumulative_mean = np.cumsum(loss_history) / np.arange(1, len(loss_history) + 1)
-    plt.plot(loss__cumulative_mean)
+    # Make plot of loss and save to disk.
+    plt.plot(loss_history-min(loss_history))
     plt.yscale('log')  # log scale for y-axis
     plt.xlabel("Step")
-    plt.ylabel("Cumulative Mean (log scale)")
-    loss__cumulative_mean_path=os.path.join(config["train_history_dir"], f"loss__cumulative_mean_{step}.pdf")
-    plt.savefig(loss__cumulative_mean_path)
+    plt.ylabel("Log (loss - min loss)")
+    loss_plot_path=os.path.join(config["train_history_dir"], f"loss_history_{step}.pdf")
+    plt.savefig(loss_plot_path)
     plt.close("all")
 
     # To see the plot:
