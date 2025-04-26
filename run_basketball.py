@@ -215,7 +215,7 @@ if __name__ == "__main__":
                 np.save(loss_history_path, loss_history)
             
                 # Make plot of loss and save to disk.
-                plt.plot(loss_history-min(loss_history))
+                plt.plot((loss_history-min(loss_history))[:step])
                 plt.yscale('log')  # log scale for y-axis
                 plt.xlabel("Step")
                 plt.ylabel("Log (loss - min loss)")

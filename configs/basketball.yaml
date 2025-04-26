@@ -9,7 +9,7 @@ batch_size: 32
 context_length: 10000 #not used
 prediction_length: 30
 #freq: H # not used
-x_dim: 30 # 8
+x_dim: 40 
 obs_dim: 20
 model_dir: ./results/basketball/{timestamp}/models/
 train_history_dir: ./results/basketball/{timestamp}/train_history/
@@ -18,13 +18,13 @@ log_dir: ./results/basketball/{timestamp}/logs/
 log_steps: 500
 save_steps: 500
 num_categories: 10
-warmup_steps_lr: 500 #2000
-num_steps: 10000 #20000   # must exceed warmup_steps_lr 
-num_samples: 5 #10 #30
+warmup_steps_lr: 1000
+num_steps: 30000   # must exceed warmup_steps_lr 
+num_samples: 1 #5 #30
 objective: elbov2
 flat_learning_rate: false
-warmup_start_lr: 5.e-3 #5.e-5
-learning_rate: 0.002 #0.0002
+warmup_start_lr: 1.e-4
+learning_rate: 7.e-3
 grad_clip_norm: 10.
 weight_decay: 1.e-5
 initial_switch:
@@ -39,7 +39,7 @@ continuous_transition:
   fixed_sigma: .0003 #0.02
   max_scale: .0003 #0.25
   scale_nonlinearity: softplus
-  mlp_hiddendim: 8
+  mlp_hiddendim: 32
 emission:
   model_type: nonlinear
   tied_cov: true
@@ -53,9 +53,9 @@ inference:
   fixed_sigma: .0003  # 0.02
   max_scale: .0003 #0.25
   scale_nonlinearity: softplus
-  embedder: brnn  # transformer or brnn
+  embedder: transformer #brnn  # transformer or brnn
 # BRNN params
-  embedding_rnndim: 16
+  embedding_rnndim: 4
   embedding_rnnlayers: 1
 # Transformer params
   embedding_trans_usepe: true
@@ -104,8 +104,8 @@ dur_t_annealing_steps: 100
 dur_t_annealing_kickin_steps: 5000
 cont_ent_anneal: 1.0
 # Unused or inconsequential
-xent_annealing: false
-xent_init: 100.
-xent_rate: 0.95
+xent_annealing: true
+xent_init: 0.
+xent_rate: 0.99
 xent_steps: 50
-xent_kickin_steps: 2000
+xent_kickin_steps: 0
