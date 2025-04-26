@@ -326,6 +326,7 @@ class SNLDS(Base):
         cont_ent_anneal: float = 1.0,
         num_samples: int = 1,
         deterministic_inference: bool = False,
+        force_breakpoint: bool = False,
     ):
         y = y[:, : self.context_length, :]
         eps = get_precision(y)
@@ -419,6 +420,10 @@ class SNLDS(Base):
         )
         #  Reconstruct the observations for visualization.
         recons_y = self.get_reconstruction(x_samples).view([num_samples, B, T, -1])
+        if force_breakpoint:
+            print("forcing breakpoint")
+            breakpoint()
+            
         #   Compute the KL between the discrete prior and gamma.
         crossent_regularizer = (
             torch.einsum("ijk, k -> ij", log_gamma, self.discrete_prior).sum(1).mean(0)
@@ -517,10 +522,11 @@ class SNLDS(Base):
             num_samples = 1
         self.eval()
         if basketball:
-            y=y[..., :-self.prediction_length:, :]
+            y=y[..., -self.prediction_length:, :]
         else:
             y = y[..., : self.context_length, :]
         eps = get_precision(y)
+
         # Scale and shift input
         if self.transform_target:
             with torch.no_grad():
@@ -755,6 +761,7 @@ class REDSDS(Base):
         cont_ent_anneal: float = 1.0,
         num_samples: int = 1,
         deterministic_inference: bool = False,
+        force_breakpoint: bool = False,
     ):
         y = y[:, : self.context_length, :]
         eps = get_precision(y)
@@ -861,6 +868,9 @@ class REDSDS(Base):
         )
         #  Reconstruct the observations for visualization.
         recons_y = self.get_reconstruction(x_samples).view([num_samples, B, T, -1])
+        if force_breakpoint:
+            print("forcing breakpoint")
+            breakpoint()
         #   Compute the KL between the discrete prior and gamma.
         crossent_regularizer = (
             torch.einsum("ijk, k -> ij", log_z_posterior, self.discrete_prior)
@@ -984,7 +994,7 @@ class REDSDS(Base):
             num_samples = 1
         self.eval()
         if basketball:
-            y=y[..., :-self.prediction_length:, :]
+            y=y[..., -self.prediction_length:, :]
         else:
             y = y[..., : self.context_length, :]
         eps = get_precision(y)

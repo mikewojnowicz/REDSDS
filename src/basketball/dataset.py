@@ -41,7 +41,6 @@ class Basketball_Dataset_Train(Dataset):
         court_dims = 2
         total_dim =  num_players * court_dims 
         traj = torch.zeros((self.traj_length, total_dim))
-        
         ### make item by finding timestep interval that doesn't overlap with example boundaries
         next_example_stop_idx, t_end = -np.inf, np.inf
         while next_example_stop_idx < t_end:

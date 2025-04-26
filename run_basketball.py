@@ -1,15 +1,3 @@
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is located at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# or in the "license" file accompanying this file. This file is distributed
-# on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
-# express or implied. See the License for the specific language governing
-# permissions and limitations under the License.
 
 import os
 import json
@@ -18,7 +6,9 @@ import torch.nn as nn
 import argparse
 import numpy as np
 import matplotlib
+from matplotlib import pyplot as plt 
 from tensorboardX import SummaryWriter
+
 import src.utils as utils
 from src.model_utils import build_model
 
@@ -27,10 +17,12 @@ from src.basketball.dataset import (
     make_basketball_dataset_test__as_list,
 )
 
-available_datasets = {"basketball"}
+debug_mode = False 
+verbose_logging = True 
+N_TRAIN_GAMES = 1 
 
 
-def train_step(batch, model, optimizer, step, config):
+def train_step(batch, model, optimizer, step, config, force_breakpoint=False):
     model.train()
 
     def _set_lr(lr):
@@ -52,6 +44,7 @@ def train_step(batch, model, optimizer, step, config):
         switch_temperature=switch_temp,
         num_samples=config["num_samples"],
         cont_ent_anneal=cont_ent_anneal,
+        force_breakpoint=force_breakpoint,
         **extra_args,
     )
     objective = -1 * (
@@ -65,6 +58,7 @@ def train_step(batch, model, optimizer, step, config):
         f"cross-ent: {xent_coeff}",
         f"cont ent: {cont_ent_anneal}",
     )
+    loss_history[s]=objective.item()
     objective.backward()
     nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip_norm"])
     _set_lr(lr)
@@ -76,50 +70,30 @@ def train_step(batch, model, optimizer, step, config):
     result["xent_coeff"] = xent_coeff
     return result
 
+def make_test_forecasts(config, model, device):
+    # setup format for return value
+    E,J,D = 78,10,2
+    S = config["forecast"]["num_samples"]
+    T_pred =config["prediction_length"]
+    test_forecasts = np.zeros((E, S, T_pred, J, D ))
 
-# def plot_results(result, prefix=""):
-#     original_inputs = torch2numpy(result["inputs"][0])
-#     reconstructed_inputs = torch2numpy(result["reconstructions"][0])
-#     most_likely_states = torch2numpy(torch.argmax(result["log_gamma"], dim=-1)[0][0])
-#     hidden_states = torch2numpy(result["x_samples"][0])
-#     discrete_states_lk = torch2numpy(torch.exp(result["log_gamma"][0])[0])
-#     true_seg = None
-#     if "true_seg" in result:
-#         true_seg = torch2numpy(result["true_seg"][0, : config["context_length"]])
+    # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
+    test_dataset__list = make_basketball_dataset_test__as_list() 
+    for e, test_example in enumerate(test_dataset__list):
+        test_example = test_example.to(device)
+        result_dict = model.predict(
+                test_example.to(device),
+                num_samples=config["forecast"]["num_samples"],
+                basketball=True,
+        )
+        # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
+        #       This seems to be the z probs in the forecast range.
 
-#     ylim = 1.3 * np.abs(original_inputs).max()
-#     matplotlib_fig = tensorboard_utils.show_time_series(
-#         fig_size=(12, 4),
-#         inputs=original_inputs,
-#         reconstructed_inputs=reconstructed_inputs,
-#         segmentation=most_likely_states,
-#         true_segmentation=true_seg,
-#         fig_title="input_reconstruction",
-#         ylim=(-ylim, ylim),
-#     )
-#     fig_numpy_array = tensorboard_utils.plot_to_image(matplotlib_fig)
-#     summary.add_image(
-#         f"{prefix}Reconstruction", fig_numpy_array, step, dataformats="HWC"
-#     )
-
-#     matplotlib_fig = tensorboard_utils.show_hidden_states(
-#         fig_size=(12, 3), zt=hidden_states, segmentation=most_likely_states
-#     )
-#     fig_numpy_array = tensorboard_utils.plot_to_image(matplotlib_fig)
-#     summary.add_image(
-#         f"{prefix}Hidden_State_xt", fig_numpy_array, step, dataformats="HWC"
-#     )
-
-#     matplotlib_fig = tensorboard_utils.show_discrete_states(
-#         fig_size=(12, 3),
-#         discrete_states_lk=discrete_states_lk,
-#         segmentation=most_likely_states,
-#     )
-#     fig_numpy_array = tensorboard_utils.plot_to_image(matplotlib_fig)
-#     summary.add_image(
-#         f"{prefix}Discrete_State_zt", fig_numpy_array, step, dataformats="HWC"
-#     )
-
+        # here we reshape the array.  in the return value
+        # one example has dimension (S, batch_dim=1, T_pred, JXD).
+        # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
+        test_forecasts[e] =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+    return test_forecasts
 
 
 if __name__ == "__main__":
@@ -142,8 +116,6 @@ if __name__ == "__main__":
 
     # Simulate CLI input
     args = parser.parse_args(["--config", "configs/basketball.yaml", "--device", "cpu"])
-    #args = parser.parse_args(["--config", "configs/bee_duration.yaml", "--device", "cpu"])
-
 
     # Inspect
     print(args)
@@ -161,7 +133,7 @@ if __name__ == "__main__":
     # DATA
     # TODO: Add other training lengths besides one game
     # TODO: make traj_length a parameter... Did we use this in other places?
-    train_dataset = make_basketball_dataset_train(data_type="train_1", traj_length=30) 
+    train_dataset = make_basketball_dataset_train(data_type=f"train_{N_TRAIN_GAMES}", traj_length=30) 
     # TODO: check if we can run basketball with more workers.
     num_workers = 0 
     train_loader = torch.utils.data.DataLoader(
@@ -197,7 +169,10 @@ if __name__ == "__main__":
         optimizer.load_state_dict(ckpt["optimizer"])
     summary = SummaryWriter(logdir=config["log_dir"])
 
-    for step in range(start_step, config["num_steps"] + 1):
+    n_steps=(config["num_steps"] + 1)-start_step
+    loss_history = np.zeros(n_steps)
+
+    for s,step in enumerate(range(start_step, config["num_steps"] + 1)):
         try:
             train_batch  = next(train_gen)
             train_batch = train_batch.to(device)
@@ -205,6 +180,8 @@ if __name__ == "__main__":
             train_gen = iter(train_loader)
         train_result = train_step(train_batch, model, optimizer, step, config)
 
+        if step==start_step:
+            train_batch_fixed=train_batch
         if step % config["save_steps"] == 0 or step == config["num_steps"]:
             model_path = os.path.join(config["model_dir"], f"model_{step}.pt")
             torch.save(
@@ -226,91 +203,80 @@ if __name__ == "__main__":
                 "elbo/training": train_result[config["objective"]],
                 "xent/training": train_result["crossent_regularizer"],
             }
-            #train_result["true_seg"] = train_label
-            #plot_results(train_result)
 
-            # # Plot duration models
-            # if config["model"] == "REDSDS":
-            #     dummy_ctrls = torch.ones(1, 1, 1, device=device)
-            #     rho = torch2numpy(
-            #         model.ctrl2nstf_network.rho(
-            #             dummy_ctrls, temperature=train_result["dur_temperature"]
-            #         )
-            #     )[0, 0]
-            #     matplotlib_fig = tensorboard_utils.show_duration_dists(
-            #         fig_size=(15, rho.shape[0] * 2), rho=rho
-            #     )
-            #     fig_numpy_array = tensorboard_utils.plot_to_image(matplotlib_fig)
-            #     summary.add_image("Duration", fig_numpy_array, step, dataformats="HWC")
+            # sanity check for training
+            if debug_mode:
+                train_step(train_batch_fixed, model, optimizer, step, config, force_breakpoint=True)
+            # see devel_check_reconstruct.py when force_breakpoint=True above.
 
-            # if step == config["num_steps"]:
-            #     # Evaluate Forecast
-            #     agg_metrics = evaluate_gts_dataset(
-            #         test_dataset,
-            #         model,
-            #         device=device,
-            #         num_samples=config["forecast"]["num_samples"],
-            #         deterministic_z=config["forecast"]["deterministic_z"],
-            #         deterministic_x=config["forecast"]["deterministic_x"],
-            #         deterministic_y=config["forecast"]["deterministic_y"],
-            #         max_len=np.inf,
-            #         batch_size=100,
-            #     )
-            #     summary_items["metrics/test_mse"] = agg_metrics["MSE"]
-            #     summary_items["metrics/CRPS"] = agg_metrics["mean_wQuantileLoss"]
-            #     all_metrics["step"].append(step)
-            #     all_metrics["CRPS"].append(agg_metrics["mean_wQuantileLoss"])
-            #     all_metrics["MSE"].append(agg_metrics["MSE"])
+            if verbose_logging:
+                # Save loss history (negative ELBO)
+                loss_history_path=os.path.join(config["log_dir"], f"loss_history_{step}.npy")
+                np.save(loss_history_path, loss_history)
+            
+                # Make plot of cumulative loss and save to disk.
+                loss__cumulative_mean = np.cumsum(loss_history) / np.arange(1, len(loss_history) + 1)
+                plt.plot(loss__cumulative_mean[:step])
+                plt.yscale('log')  # log scale for y-axis
+                plt.xlabel("Step")
+                plt.ylabel("Cumulative Mean (log scale)")
+                loss__cumulative_mean_path=os.path.join(config["log_dir"], f"loss__cumulative_mean_{step}.pdf")
+                plt.savefig(loss__cumulative_mean_path)
+                plt.close("all")
 
-    # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
-    test_dataset__list = make_basketball_dataset_test__as_list() 
+                # Save test set forecasts 
+                model_name=config["model"]
+                forecasts_path=os.path.join(config["log_dir"], f"forecasts_test__{model_name}__n_train_{N_TRAIN_GAMES}_{step}.npy")
+                test_forecasts=make_test_forecasts(config, model, device)
+                np.save(forecasts_path, test_forecasts)
 
-    # setup format for return value
-    E = 78
-    J = 10 
-    D = 2 
-    S = config["forecast"]["num_samples"]
-    T_pred =config["prediction_length"]
-    test_forecasts = np.zeros((E, S, T_pred, J, D ))
-    for e, test_example in enumerate(test_dataset__list):
-        test_example = test_example.to(device)
-
-        result_dict = model.predict(
-                test_example.to(device),
-                num_samples=config["forecast"]["num_samples"],
-                basketball=True,
-        )
+            # # sanity check for "forecasting"
+            # result_dict = model.predict(
+            #     train_batch_fixed[0,:,:][None,:,:].to(device),
+            #     num_samples=config["forecast"]["num_samples"],
+            #     basketball=True,
+            # )
+            # S = config["forecast"]["num_samples"]
+            # T_pred =config["prediction_length"]
+            # J,D = 10,2 
+            # forecast=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+            # breakpoint()
         # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
         #       This seems to be the z probs in the forecast range.
 
         # here we reshape the array.  in the return value
         # one example has dimension (S, batch_dim=1, T_pred, JXD).
         # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
-        test_forecasts[e] =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
- 
-    
+  
+
+    # Save loss history (negative ELBO)
+    loss_history_path=os.path.join(config["train_history_dir"], f"loss_history_{step}.npy")
+    np.save(loss_history_path, loss_history)
+  
+    # Make plot of cumulative loss and save to disk.
+    loss__cumulative_mean = np.cumsum(loss_history) / np.arange(1, len(loss_history) + 1)
+    plt.plot(loss__cumulative_mean)
+    plt.yscale('log')  # log scale for y-axis
+    plt.xlabel("Step")
+    plt.ylabel("Cumulative Mean (log scale)")
+    loss__cumulative_mean_path=os.path.join(config["train_history_dir"], f"loss__cumulative_mean_{step}.pdf")
+    plt.savefig(loss__cumulative_mean_path)
+    plt.close("all")
+
+    # To see the plot:
+    #import matplotlib
+    #matplotlib.use("Qt5Agg") 
+    #plt.show()
+
+
+    # Make and save test set forecasts 
+    test_forecasts=make_test_forecasts(config, model, device)
+    model_name=config["model"]
+    forecasts_path=os.path.join(config["forecasts_dir"], f"forecasts_test__{model_name}__n_train_{N_TRAIN_GAMES}_{step}.npy")
+    np.save(forecasts_path, test_forecasts)
+
     breakpoint()
-    # Here I can compare the forecasts to the reality (might need to train longer)
 
 
-        # np.shape(result_dict["rec_n_forecast"]) = (20,1,30,20)
-        # this seems to be for one example we have (S, discard, T_forecast, JXD)
 
-        # complete_ts = val_batch["past_target"][0:1]
-        # matplotlib_fig = tensorboard_utils.show_time_series_forecast(
-        #     fig_size=(12, 4),
-        #     inputs=complete_ts.data.cpu().numpy()[0],
-        #     rec_with_forecast=rec_with_forecast,
-        #     context_length=config["context_length"],
-        #     prediction_length=config["prediction_length"],
-        #     fig_title="forecast",
-        # )
-        # fig_numpy_array = tensorboard_utils.plot_to_image(matplotlib_fig)
-        # summary.add_image("Forecast", fig_numpy_array, step, dataformats="HWC")
-
-        # for k, v in summary_items.items():
-        #     summary.add_scalar(k, v, step)
-        # summary.flush()
-
-    # with open(os.path.join(config["log_dir"], "metrics.json"), "w") as fp:
-    #     json.dump(all_metrics, fp)
+    
