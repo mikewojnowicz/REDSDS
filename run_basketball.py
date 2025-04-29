@@ -17,10 +17,10 @@ from src.basketball.dataset import (
     make_basketball_dataset_test__as_list,
 )
 
-debug_mode_for_training = False 
-debug_mode_for_forecasting = True 
+debug_mode_for_training = False
+debug_mode_for_forecasting = False 
 verbose_logging = True 
-N_TRAIN_GAMES = 1 
+
 
 
 def train_step(batch, model, optimizer, step, config, force_breakpoint=False):
@@ -71,15 +71,16 @@ def train_step(batch, model, optimizer, step, config, force_breakpoint=False):
     result["xent_coeff"] = xent_coeff
     return result
 
-def make_test_forecasts(config, model, device):
+def make_test_forecasts(config, model, device, n_players, player_idx):
     # setup format for return value
-    E,J,D = 78,10,2
+    E,D = 78,2
+    J = n_players
     S = config["forecast"]["num_samples"]
     T_pred =config["prediction_length"]
     test_forecasts = np.zeros((E, S, T_pred, J, D ))
 
     # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
-    test_dataset__list = make_basketball_dataset_test__as_list(n_players=config["n_players"]) 
+    test_dataset__list = make_basketball_dataset_test__as_list(n_players=config["n_players"], player_idx=player_idx) 
     for e, test_example in enumerate(test_dataset__list):
         test_example = test_example.to(device)
         result_dict = model.predict(
@@ -93,7 +94,9 @@ def make_test_forecasts(config, model, device):
         # here we reshape the array.  in the return value
         # one example has dimension (S, batch_dim=1, T_pred, JXD).
         # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
-        test_forecasts[e] =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+        # test_forecasts__reversed =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+        # test_forecasts[e]=test_forecasts__reversed[:,torch.arange(T_pred - 1, -1, -1),:,:]
+        test_forecasts[e]=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
     return test_forecasts
 
 
@@ -131,153 +134,140 @@ if __name__ == "__main__":
     with open(os.path.join(config["log_dir"], "config.json"), "w") as fp:
         json.dump(config, fp)
 
-    # DATA
-    # TODO: Add other training lengths besides one game
-    # TODO: make traj_length a parameter... Did we use this in other places?
-    train_dataset = make_basketball_dataset_train(data_type=f"train_{N_TRAIN_GAMES}", traj_length=30, n_players=config["n_players"]) 
-    # TODO: check if we can run basketball with more workers.
-    num_workers = 0 
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=config["batch_size"],
-        num_workers=num_workers,
-        shuffle=True,
-        pin_memory=True,
-    )
+    if config["n_players"]!=1:
+        raise NotImplementedError(f"This loop now assumes we're running models for one player at a time. "
+                                  f"Also the forecasting method with n=10 players seems to be broken. ")
+
+    # TODO: put this back in the correct order.
+    for player_idx in [0,1,2,3,4,5,6,7,8,9]:
+       
+        # TODO: make traj_length a parameter... Did we use this in other places?
+        train_dataset = make_basketball_dataset_train(n_train_games=config["n_train_games"], traj_length=30, n_players=config["n_players"], player_idx=player_idx) 
+        # TODO: check if we can run basketball with more workers.
+        num_workers = 0 
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=config["batch_size"],
+            num_workers=num_workers,
+            shuffle=True,
+            pin_memory=True,
+        )
+
+        train_gen = iter(train_loader)
+
+        print(f'Running {config["model"]} on {config["dataset"]}.')
+        print(f"Train size: {len(train_dataset)}.")
+
+        # MODEL
+        model = build_model(config=config)
+        start_step = 1
+        if args.ckpt:
+            model.load_state_dict(ckpt["model"])
+            start_step = ckpt["step"] + 1
+        model = model.to(device)
+
+        for n, p in model.named_parameters():
+            print(n, p.size())
+
+        # TRAIN
+        optimizer = torch.optim.Adam(
+            model.parameters(), weight_decay=config["weight_decay"]
+        )
+        if args.ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        summary = SummaryWriter(logdir=config["log_dir"])
+
+        n_steps=(config["num_steps"] + 1)-start_step
+        loss_history = np.zeros(n_steps)
+
+        for s,step in enumerate(range(start_step, config["num_steps"] + 1)):
+            try:
+                train_batch  = next(train_gen)
+                train_batch = train_batch.to(device)
+            except StopIteration:
+                train_gen = iter(train_loader)
+            train_result = train_step(train_batch, model, optimizer, step, config)
+
+            if step==start_step:
+                train_batch_fixed=train_batch
+            if step % config["save_steps"] == 0 or step == config["num_steps"]:
+                model_path = os.path.join(config["model_dir"], f"model_player_{player_idx}_step_{step}.pt")
+                torch.save(
+                    {
+                        "step": step,
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "config": config,
+                    },
+                    model_path,
+                )
+
+            if step % config["log_steps"] == 0 or step == config["num_steps"]:
+                summary_items = {
+                    "params/learning_rate": train_result["lr"],
+                    "params/switch_temperature": train_result["switch_temperature"],
+                    "params/dur_temperature": train_result["dur_temperature"],
+                    "params/cross_entropy_coef": train_result["xent_coeff"],
+                    "elbo/training": train_result[config["objective"]],
+                    "xent/training": train_result["crossent_regularizer"],
+                }
+
+                # sanity check for training
+                if debug_mode_for_training:
+                    train_step(train_batch_fixed, model, optimizer, step, config, force_breakpoint=True)
+                    breakpoint()
+                    # see devel_check_reconstruct.py when force_breakpoint=True above.
+
+                if debug_mode_for_forecasting:
+                    test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
+                    breakpoint()
+                    # see devel_check_forecasts__one_player.py if we have one player.
+
+                if verbose_logging:
+                    # Save loss history (negative ELBO)
+                    loss_history_path=os.path.join(config["log_dir"], f"loss_history__player_{player_idx}__step_{step}.npy")
+                    np.save(loss_history_path, loss_history)
+                
+                    # Make plot of loss and save to disk.
+                    plt.plot((loss_history-min(loss_history))[:step])
+                    plt.yscale('log')  # log scale for y-axis
+                    plt.xlabel("Step")
+                    plt.ylabel("Log (loss - min loss)")
+                    loss_plot_path=os.path.join(config["log_dir"], f"loss_history__player_{player_idx}__step_{step}.pdf")
+                    plt.savefig(loss_plot_path)
+                    plt.close("all")
+
+                    # Save test set forecasts 
+                    model_name=config["model"]
+                    n_train_games=config["n_train_games"]
+                    forecasts_path=os.path.join(config["log_dir"], f"forecasts_test__{model_name}__n_train_{n_train_games}__step_{step}_player_{player_idx}.npy")
+                    test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
+                    np.save(forecasts_path, test_forecasts)
+
+        # Save loss history (negative ELBO)
+        loss_history_path=os.path.join(config["train_history_dir"], f"loss_history__player_{player_idx}__step_{step}.npy")
+        np.save(loss_history_path, loss_history)
+    
+        # Make plot of loss and save to disk.
+        plt.plot(loss_history-min(loss_history))
+        plt.yscale('log')  # log scale for y-axis
+        plt.xlabel("Step")
+        plt.ylabel("Log (loss - min loss)")
+        loss_plot_path=os.path.join(config["train_history_dir"], f"loss_history__player_{player_idx}__step_{step}.pdf")
+        plt.savefig(loss_plot_path)
+        plt.close("all")
+
+        # To see the plot:
+        #import matplotlib
+        #matplotlib.use("Qt5Agg") 
+        #plt.show()
 
 
-    train_gen = iter(train_loader)
-
-    print(f'Running {config["model"]} on {config["dataset"]}.')
-    print(f"Train size: {len(train_dataset)}.")
-
-    # MODEL
-    model = build_model(config=config)
-    start_step = 1
-    if args.ckpt:
-        model.load_state_dict(ckpt["model"])
-        start_step = ckpt["step"] + 1
-    model = model.to(device)
-
-    for n, p in model.named_parameters():
-        print(n, p.size())
-
-    # TRAIN
-    optimizer = torch.optim.Adam(
-        model.parameters(), weight_decay=config["weight_decay"]
-    )
-    if args.ckpt:
-        optimizer.load_state_dict(ckpt["optimizer"])
-    summary = SummaryWriter(logdir=config["log_dir"])
-
-    n_steps=(config["num_steps"] + 1)-start_step
-    loss_history = np.zeros(n_steps)
-
-    for s,step in enumerate(range(start_step, config["num_steps"] + 1)):
-        try:
-            train_batch  = next(train_gen)
-            train_batch = train_batch.to(device)
-        except StopIteration:
-            train_gen = iter(train_loader)
-        train_result = train_step(train_batch, model, optimizer, step, config)
-
-        if step==start_step:
-            train_batch_fixed=train_batch
-        if step % config["save_steps"] == 0 or step == config["num_steps"]:
-            model_path = os.path.join(config["model_dir"], f"model_{step}.pt")
-            torch.save(
-                {
-                    "step": step,
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "config": config,
-                },
-                model_path,
-            )
-
-        if step % config["log_steps"] == 0 or step == config["num_steps"]:
-            summary_items = {
-                "params/learning_rate": train_result["lr"],
-                "params/switch_temperature": train_result["switch_temperature"],
-                "params/dur_temperature": train_result["dur_temperature"],
-                "params/cross_entropy_coef": train_result["xent_coeff"],
-                "elbo/training": train_result[config["objective"]],
-                "xent/training": train_result["crossent_regularizer"],
-            }
-
-            # sanity check for training
-            if debug_mode_for_training:
-                train_step(train_batch_fixed, model, optimizer, step, config, force_breakpoint=True)
-            # see devel_check_reconstruct.py when force_breakpoint=True above.
-
-            if debug_mode_for_forecasting:
-                test_forecasts=make_test_forecasts(config, model, device)
-
-            if verbose_logging:
-                # Save loss history (negative ELBO)
-                loss_history_path=os.path.join(config["log_dir"], f"loss_history_{step}.npy")
-                np.save(loss_history_path, loss_history)
-            
-                # Make plot of loss and save to disk.
-                plt.plot((loss_history-min(loss_history))[:step])
-                plt.yscale('log')  # log scale for y-axis
-                plt.xlabel("Step")
-                plt.ylabel("Log (loss - min loss)")
-                loss_plot_path=os.path.join(config["log_dir"], f"loss_history_{step}.pdf")
-                plt.savefig(loss_plot_path)
-                plt.close("all")
-
-                # Save test set forecasts 
-                model_name=config["model"]
-                forecasts_path=os.path.join(config["log_dir"], f"forecasts_test__{model_name}__n_train_{N_TRAIN_GAMES}_{step}.npy")
-                test_forecasts=make_test_forecasts(config, model, device)
-                np.save(forecasts_path, test_forecasts)
-
-            # # sanity check for "forecasting"
-            # result_dict = model.predict(
-            #     train_batch_fixed[0,:,:][None,:,:].to(device),
-            #     num_samples=config["forecast"]["num_samples"],
-            #     basketball=True,
-            # )
-            # S = config["forecast"]["num_samples"]
-            # T_pred =config["prediction_length"]
-            # J,D = 10,2 
-            # forecast=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
-            # breakpoint()
-        # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
-        #       This seems to be the z probs in the forecast range.
-
-        # here we reshape the array.  in the return value
-        # one example has dimension (S, batch_dim=1, T_pred, JXD).
-        # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
-  
-
-    # Save loss history (negative ELBO)
-    loss_history_path=os.path.join(config["train_history_dir"], f"loss_history_{step}.npy")
-    np.save(loss_history_path, loss_history)
-  
-    # Make plot of loss and save to disk.
-    plt.plot(loss_history-min(loss_history))
-    plt.yscale('log')  # log scale for y-axis
-    plt.xlabel("Step")
-    plt.ylabel("Log (loss - min loss)")
-    loss_plot_path=os.path.join(config["train_history_dir"], f"loss_history_{step}.pdf")
-    plt.savefig(loss_plot_path)
-    plt.close("all")
-
-    # To see the plot:
-    #import matplotlib
-    #matplotlib.use("Qt5Agg") 
-    #plt.show()
-
-
-    # Make and save test set forecasts 
-    test_forecasts=make_test_forecasts(config, model, device)
-    model_name=config["model"]
-    forecasts_path=os.path.join(config["forecasts_dir"], f"forecasts_test__{model_name}__n_train_{N_TRAIN_GAMES}_{step}.npy")
-    np.save(forecasts_path, test_forecasts)
-
-    breakpoint()
+        # Make and save test set forecasts 
+        test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
+        model_name=config["model"]
+        forecasts_path=os.path.join(config["forecasts_dir"], f"forecasts_test__{model_name}__n_train_{n_train_games}__step_{step}__player_{player_idx}.npy")
+        np.save(forecasts_path, test_forecasts)
 
 
 

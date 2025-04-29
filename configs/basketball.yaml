@@ -1,7 +1,10 @@
 experiment: basketball
 model: SNLDS #REDSDS
 dataset: basketball
-n_players: 1 
+n_train_games: 1
+n_players: 1
+obs_dim: 2 #should be n_players x court_dim = n_players x 2. #TODO: compute this programmatically.
+x_dim: 4 # Double obs_dim might make sense.
 # seg_labels: true
 # only_segmentation: True
 d_min: 20 # duration 
@@ -10,8 +13,6 @@ batch_size: 32
 context_length: 10000 #not used
 prediction_length: 30
 #freq: H # not used
-x_dim: 40 
-obs_dim: 20
 model_dir: ./results/basketball/{timestamp}/models/
 train_history_dir: ./results/basketball/{timestamp}/train_history/
 forecasts_dir: ./results/basketball/{timestamp}/forecasts/

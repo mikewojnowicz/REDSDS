@@ -522,7 +522,7 @@ class SNLDS(Base):
             num_samples = 1
         self.eval()
         if basketball:
-            y=y[..., -self.prediction_length:, :]
+            y=y[..., :-self.prediction_length, :]
         else:
             y = y[..., : self.context_length, :]
         eps = get_precision(y)

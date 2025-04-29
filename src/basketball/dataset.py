@@ -4,7 +4,7 @@ import re
 import numpy as np
 import random 
 
-from typing import List 
+from typing import List, Optional 
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -22,12 +22,21 @@ class Basketball_Dataset_Train(Dataset):
 
     1) We feed their model minibatches that never straddle an example boundary.
     """
-    def __init__(self, coords, example_stop_idxs, traj_length, n_players):
+    def __init__(self, coords, example_stop_idxs, traj_length, n_players, player_idx: Optional[int]=None):
+
+        if n_players not in [1,10]:
+            raise ValueError("n_players must be 1 or 10")
+
+        if player_idx not in [0,1,2,3,4,5,6,7,8,9]:
+            raise ValueError("player_idx must be between 0 and 9, inclusive")
+        
+        
         self.coords = coords
         self.example_stop_idxs = example_stop_idxs
         self.traj_length = traj_length
         self.n_players = n_players 
-
+        self.player_idx = player_idx 
+        
     def __len__(self):
         return len(self.coords)
 
@@ -48,7 +57,13 @@ class Basketball_Dataset_Train(Dataset):
             next_example_stop_idx = next((item for item in self.example_stop_idxs if item > t_start), None)
             t_end = t_start + self.traj_length
 
-        coords = self.coords[t_start:t_start + self.traj_length, :self.n_players,:]
+        if self.n_players==10:
+            coords = self.coords[t_start:t_start + self.traj_length, :10,:] #shape (T, J, D)
+        elif self.n_players==1:
+            coords = self.coords[t_start:t_start + self.traj_length, self.player_idx,:]
+            # ensure that we preserve the second dimension for player
+            coords = coords[:,None,:] #shape (T, J, D)
+
         # "flatten" (n_players,2) court dims into (n_players*2) dims
         # player 0's (x,y), player 1's (x,y), etc.
         traj =  torch.Tensor(coords).reshape(self.traj_length, total_dim) 
@@ -57,8 +72,9 @@ class Basketball_Dataset_Train(Dataset):
 
 DATA_DIR = "data/basketball/baller2vec_format/processed/"
 
+
 def make_basketball_dataset_train(
-    data_type : str, traj_length: int, n_players: int
+    n_train_games: int, traj_length: int, n_players: int, player_idx: int, 
 ) -> Basketball_Dataset_Train:
     
     """
@@ -66,24 +82,24 @@ def make_basketball_dataset_train(
         data_type: str, in ["train_1", "train_5", "train_20"]
     """
 
-    if data_type == "train_1":
+    if n_train_games==1:
         coords_filepath = os.path.join(DATA_DIR, "player_coords_train__with_1_games.npy")
         example_stop_idxs_filepath = os.path.join(DATA_DIR, "example_stop_idxs_train__with_1_games.npy")
-    elif data_type == "train_5":
+    elif n_train_games==5:
         coords_filepath = os.path.join(DATA_DIR, "player_coords_train__with_5_games.npy")
         example_stop_idxs_filepath = os.path.join(DATA_DIR, "example_stop_idxs_train__with_5_games.npy")
-    elif data_type == "train_20":
+    elif n_train_games==20:
         coords_filepath = os.path.join(DATA_DIR, "player_coords_train__with_20_games.npy")
         example_stop_idxs_filepath = os.path.join(DATA_DIR, "example_stop_idxs_train__with_20_games.npy")
     else: 
-        raise ValueError(f"I don't understand data_type {data_type}, which should tell me whether to train or test"
+        raise ValueError(f"I don't understand num of training games {n_train_games}, which should tell me whether to train or test"
                          f"and also the training size.  See function docstring.")  
 
     coords = np.load(coords_filepath)
     example_stop_idxs = np.load(example_stop_idxs_filepath)
 
     # Create a dataset which has __getitem__ defined to give a batch in the form expected by GroupNet
-    return Basketball_Dataset_Train(coords, example_stop_idxs, traj_length, n_players)
+    return Basketball_Dataset_Train(coords, example_stop_idxs, traj_length, n_players, player_idx)
 
 
 def get_basketball_test_start_and_stop_idxs():
@@ -110,7 +126,7 @@ def get_basketball_test_start_and_stop_idxs():
 
     return start_idxs, stop_idxs
 
-def make_basketball_dataset_test__as_list(n_players: int) -> List[torch.Tensor]:    
+def make_basketball_dataset_test__as_list(n_players: int, player_idx: Optional[int]=None) -> List[torch.Tensor]:    
     """
     Returns:
         List of 78 examples.  Each list element is an torch Tensor of shape
@@ -137,5 +153,11 @@ def make_basketball_dataset_test__as_list(n_players: int) -> List[torch.Tensor]:
         start_idx, stop_idx = start_idxs[e], stop_idxs[e]
         T_example = stop_idx-start_idx
         # we use 1 for the batch dimension, to be consistent with the rest of the code.
-        test_set_list[e]=torch.Tensor(coords[start_idx:stop_idx, :n_players]).reshape(1,T_example, total_dim)
+
+        if n_players==10:
+            coords_clip=coords[start_idx:stop_idx, :10] #shape (T, J, D)
+        elif n_players==1:
+             # ensure that we preserve the second dimension for player
+            coords_clip = coords[start_idx:stop_idx, player_idx][:,None,:] #shape (T, J, D)
+        test_set_list[e]=torch.Tensor(coords_clip).reshape(1,T_example, total_dim)
     return test_set_list
