@@ -423,7 +423,7 @@ class SNLDS(Base):
         if force_breakpoint:
             print("forcing breakpoint")
             breakpoint()
-            
+
         #   Compute the KL between the discrete prior and gamma.
         crossent_regularizer = (
             torch.einsum("ijk, k -> ij", log_gamma, self.discrete_prior).sum(1).mean(0)
@@ -559,8 +559,13 @@ class SNLDS(Base):
             )
 
         #  Infer the latent state x[1:T]
+        #HORRIBLE HACK!
+        if np.ndim(y)==2:
+            y_use=y[None,:,:]
+        else:
+            y_use = y 
         x_samples, _, _ = self.inference_network(
-            y, ctrl_feats, num_samples=num_samples, deterministic=mean_prediction
+            y_use, ctrl_feats, num_samples=num_samples, deterministic=mean_prediction
         )
         _, B, T, x_dim = x_samples.shape
         x_samples = x_samples.view(num_samples * B, T, x_dim)

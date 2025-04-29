@@ -17,7 +17,7 @@ from src.basketball.dataset import (
     make_basketball_dataset_test__as_list,
 )
 
-debug_mode = False 
+debug_mode = False
 verbose_logging = True 
 N_TRAIN_GAMES = 1 
 
@@ -72,10 +72,10 @@ def train_step(batch, model, optimizer, step, config, force_breakpoint=False):
 
 def make_test_forecasts(config, model, device):
     # setup format for return value
-    E,J,D = 78,10,2
+    E,D = 78,2
     S = config["forecast"]["num_samples"]
     T_pred =config["prediction_length"]
-    test_forecasts = np.zeros((E, S, T_pred, J, D ))
+    test_forecasts = np.zeros((E, S, T_pred, D ))
 
     # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
     test_dataset__list = make_basketball_dataset_test__as_list() 
@@ -88,11 +88,10 @@ def make_test_forecasts(config, model, device):
         )
         # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
         #       This seems to be the z probs in the forecast range.
-
         # here we reshape the array.  in the return value
         # one example has dimension (S, batch_dim=1, T_pred, JXD).
         # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
-        test_forecasts[e] =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+        test_forecasts[e] = np.swapaxes(result_dict["forecast"], 1, 2).squeeze(-2) 
     return test_forecasts
 
 
@@ -228,6 +227,9 @@ if __name__ == "__main__":
                 forecasts_path=os.path.join(config["log_dir"], f"forecasts_test__{model_name}__n_train_{N_TRAIN_GAMES}_{step}.npy")
                 test_forecasts=make_test_forecasts(config, model, device)
                 np.save(forecasts_path, test_forecasts)
+                if debug_mode or step==2000:
+                    print("time to check forecasts!")
+                    breakpoint()
 
             # # sanity check for "forecasting"
             # result_dict = model.predict(

@@ -47,11 +47,8 @@ class Basketball_Dataset_Train(Dataset):
             t_start = random.randint(0, T - self.traj_length)
             next_example_stop_idx = next((item for item in self.example_stop_idxs if item > t_start), None)
             t_end = t_start + self.traj_length
-
         coords = self.coords[t_start:t_start + self.traj_length]
-        # "flatten" 10 players x 2 court dims into 20 dims
-        # player 0's (x,y), player 1's (x,y), etc.
-        traj =  torch.Tensor(coords).reshape(self.traj_length, total_dim) 
+        traj =  torch.Tensor(coords[:,0])
         return traj
 
 
@@ -129,13 +126,9 @@ def make_basketball_dataset_test__as_list() -> List[torch.Tensor]:
     if not (len(start_idxs)==len(stop_idxs)==78):
         raise ValueError("There should be 78 examples in the test set.")
 
-    num_players, court_dims = 10, 2
-    total_dim =  num_players * court_dims 
-
     test_set_list = [None]*78
     for e in range(78):
         start_idx, stop_idx = start_idxs[e], stop_idxs[e]
-        T_example = stop_idx-start_idx
         # we use 1 for the batch dimension, to be consistent with the rest of the code.
-        test_set_list[e]=torch.Tensor(coords[start_idx:stop_idx]).reshape(1,T_example, total_dim)
+        test_set_list[e]=torch.Tensor(coords[start_idx:stop_idx,0])
     return test_set_list
