@@ -1,6 +1,7 @@
 experiment: basketball
 model: SNLDS #REDSDS
 dataset: basketball
+n_players: 1 
 # seg_labels: true
 # only_segmentation: True
 d_min: 20 # duration 

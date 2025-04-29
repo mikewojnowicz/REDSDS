@@ -22,10 +22,11 @@ class Basketball_Dataset_Train(Dataset):
 
     1) We feed their model minibatches that never straddle an example boundary.
     """
-    def __init__(self, coords, example_stop_idxs, traj_length):
+    def __init__(self, coords, example_stop_idxs, traj_length, n_players):
         self.coords = coords
         self.example_stop_idxs = example_stop_idxs
         self.traj_length = traj_length
+        self.n_players = n_players 
 
     def __len__(self):
         return len(self.coords)
@@ -37,9 +38,8 @@ class Basketball_Dataset_Train(Dataset):
                 (traj_length, num_players * court_dims=20)
         """
         T = len(self.coords)
-        num_players  = 10
         court_dims = 2
-        total_dim =  num_players * court_dims 
+        total_dim =  self.n_players * court_dims 
         traj = torch.zeros((self.traj_length, total_dim))
         ### make item by finding timestep interval that doesn't overlap with example boundaries
         next_example_stop_idx, t_end = -np.inf, np.inf
@@ -48,8 +48,8 @@ class Basketball_Dataset_Train(Dataset):
             next_example_stop_idx = next((item for item in self.example_stop_idxs if item > t_start), None)
             t_end = t_start + self.traj_length
 
-        coords = self.coords[t_start:t_start + self.traj_length]
-        # "flatten" 10 players x 2 court dims into 20 dims
+        coords = self.coords[t_start:t_start + self.traj_length, :self.n_players,:]
+        # "flatten" (n_players,2) court dims into (n_players*2) dims
         # player 0's (x,y), player 1's (x,y), etc.
         traj =  torch.Tensor(coords).reshape(self.traj_length, total_dim) 
         return traj
@@ -58,7 +58,7 @@ class Basketball_Dataset_Train(Dataset):
 DATA_DIR = "data/basketball/baller2vec_format/processed/"
 
 def make_basketball_dataset_train(
-    data_type : str, traj_length: int,
+    data_type : str, traj_length: int, n_players: int
 ) -> Basketball_Dataset_Train:
     
     """
@@ -83,7 +83,7 @@ def make_basketball_dataset_train(
     example_stop_idxs = np.load(example_stop_idxs_filepath)
 
     # Create a dataset which has __getitem__ defined to give a batch in the form expected by GroupNet
-    return Basketball_Dataset_Train(coords, example_stop_idxs, traj_length)
+    return Basketball_Dataset_Train(coords, example_stop_idxs, traj_length, n_players)
 
 
 def get_basketball_test_start_and_stop_idxs():
@@ -110,7 +110,7 @@ def get_basketball_test_start_and_stop_idxs():
 
     return start_idxs, stop_idxs
 
-def make_basketball_dataset_test__as_list() -> List[torch.Tensor]:    
+def make_basketball_dataset_test__as_list(n_players: int) -> List[torch.Tensor]:    
     """
     Returns:
         List of 78 examples.  Each list element is an torch Tensor of shape
@@ -129,13 +129,13 @@ def make_basketball_dataset_test__as_list() -> List[torch.Tensor]:
     if not (len(start_idxs)==len(stop_idxs)==78):
         raise ValueError("There should be 78 examples in the test set.")
 
-    num_players, court_dims = 10, 2
-    total_dim =  num_players * court_dims 
+    court_dims = 2
+    total_dim =  n_players * court_dims 
 
     test_set_list = [None]*78
     for e in range(78):
         start_idx, stop_idx = start_idxs[e], stop_idxs[e]
         T_example = stop_idx-start_idx
         # we use 1 for the batch dimension, to be consistent with the rest of the code.
-        test_set_list[e]=torch.Tensor(coords[start_idx:stop_idx]).reshape(1,T_example, total_dim)
+        test_set_list[e]=torch.Tensor(coords[start_idx:stop_idx, :n_players]).reshape(1,T_example, total_dim)
     return test_set_list

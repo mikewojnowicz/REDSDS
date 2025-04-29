@@ -17,7 +17,8 @@ from src.basketball.dataset import (
     make_basketball_dataset_test__as_list,
 )
 
-debug_mode = False 
+debug_mode_for_training = False 
+debug_mode_for_forecasting = True 
 verbose_logging = True 
 N_TRAIN_GAMES = 1 
 
@@ -78,7 +79,7 @@ def make_test_forecasts(config, model, device):
     test_forecasts = np.zeros((E, S, T_pred, J, D ))
 
     # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
-    test_dataset__list = make_basketball_dataset_test__as_list() 
+    test_dataset__list = make_basketball_dataset_test__as_list(n_players=config["n_players"]) 
     for e, test_example in enumerate(test_dataset__list):
         test_example = test_example.to(device)
         result_dict = model.predict(
@@ -133,7 +134,7 @@ if __name__ == "__main__":
     # DATA
     # TODO: Add other training lengths besides one game
     # TODO: make traj_length a parameter... Did we use this in other places?
-    train_dataset = make_basketball_dataset_train(data_type=f"train_{N_TRAIN_GAMES}", traj_length=30) 
+    train_dataset = make_basketball_dataset_train(data_type=f"train_{N_TRAIN_GAMES}", traj_length=30, n_players=config["n_players"]) 
     # TODO: check if we can run basketball with more workers.
     num_workers = 0 
     train_loader = torch.utils.data.DataLoader(
@@ -205,9 +206,12 @@ if __name__ == "__main__":
             }
 
             # sanity check for training
-            if debug_mode:
+            if debug_mode_for_training:
                 train_step(train_batch_fixed, model, optimizer, step, config, force_breakpoint=True)
             # see devel_check_reconstruct.py when force_breakpoint=True above.
+
+            if debug_mode_for_forecasting:
+                test_forecasts=make_test_forecasts(config, model, device)
 
             if verbose_logging:
                 # Save loss history (negative ELBO)
