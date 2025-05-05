@@ -183,7 +183,7 @@ if __name__ == "__main__":
         raise NotImplementedError(f"This loop now assumes we're running models for one player at a time. "
                                   f"Also the forecasting method with n=10 players seems to be broken. ")
 
-    for n_train_games in [1,5,20]:
+    for n_train_games in config["n_train_games_list"]:
         # TODO: put this back in the correct order.
         for player_idx in [0,1,2,3,4,5,6,7,8,9]:
         
