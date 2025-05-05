@@ -631,7 +631,7 @@ class SNLDS(Base):
         if self.transform_target:
             with torch.no_grad():
                 rec_y_with_forecast = target_transformer(rec_y_with_forecast)
-        return dict(forecast=forecast, z_emp_probs=z_emp_probs)
+        return dict(forecast=forecast, z_emp_probs=z_emp_probs, rec_y_with_forecast=rec_y_with_forecast)
 
 
 class REDSDS(Base):

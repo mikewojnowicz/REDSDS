@@ -18,7 +18,7 @@ from src.basketball.dataset import (
 )
 
 debug_mode_for_training = False
-debug_mode_for_forecasting = False 
+debug_mode_for_forecasting = False
 verbose_logging = True 
 
 
@@ -71,6 +71,50 @@ def train_step(batch, model, optimizer, step, config, force_breakpoint=False):
     result["xent_coeff"] = xent_coeff
     return result
 
+
+def plot_some_reconstructions_and_forecasts(config, model, device, player_idx, step):
+    S = config["forecast"]["num_samples"]
+    T_pred =config["prediction_length"]
+    # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
+    test_dataset__list = make_basketball_dataset_test__as_list(n_players=config["n_players"], player_idx=player_idx) 
+    
+    for e in range(5):
+        test_example =test_dataset__list[e]
+        test_example = test_example.to(device)
+        result_dict = model.predict(
+                test_example.to(device),
+                num_samples=config["forecast"]["num_samples"],
+                basketball=True,
+        )
+        rec_y_with_forecast = result_dict["rec_y_with_forecast"][:,0]
+
+        for s in range(3):
+            context_rec=rec_y_with_forecast[s,:-T_pred]
+            context_true=test_example[0,:-T_pred]
+
+            forecast_pred=rec_y_with_forecast[s,-T_pred:]
+            forecast_true=test_example[0,-T_pred:]
+
+            T_context=len(context_true)
+            T_forecast=len(forecast_true)
+
+            # y (cool): light blue to pink
+            # forecast (viridis): purple to yellow
+
+            plt.scatter(context_true[:,0], context_true[:,1], c=np.arange(T_context), cmap='cool', s=30, marker="x")
+            plt.scatter(context_rec[:,0],context_rec[:,1], c=np.arange(T_context), cmap='cool', s=30)
+            plt.scatter(forecast_true[:,0], forecast_true[:,1], c=np.arange(T_forecast), cmap='viridis', s=30, marker="x")
+            plt.scatter(forecast_pred[:,0],forecast_pred[:,1], c=np.arange(T_forecast), cmap='viridis', s=30)
+            #plt.xlim(0, 1)
+            #plt.ylim(0, 1)
+            #plt.show()
+            #input("")
+            #plt.close("all")
+
+            plot_path=os.path.join(config["log_dir"], f"context_and_reconstruction_{n_train_games}__player_{player_idx}____step_{step}__example_{e}__sample_{s}.pdf")
+            plt.savefig(plot_path)
+            plt.close("all")
+
 def make_test_forecasts(config, model, device, n_players, player_idx):
     # setup format for return value
     E,D = 78,2
@@ -97,6 +141,7 @@ def make_test_forecasts(config, model, device, n_players, player_idx):
         # test_forecasts__reversed =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
         # test_forecasts[e]=test_forecasts__reversed[:,torch.arange(T_pred - 1, -1, -1),:,:]
         test_forecasts[e]=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+    
     return test_forecasts
 
 
@@ -220,9 +265,10 @@ if __name__ == "__main__":
                         # see devel_check_reconstruct.py when force_breakpoint=True above.
 
                     if debug_mode_for_forecasting:
+                        plot_some_reconstructions_and_forecasts(config, model, device, player_idx, step)
                         test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
-                        breakpoint()
                         # see devel_check_forecasts__one_player.py if we have one player.
+                        breakpoint()
 
                     if verbose_logging:
                         # Save loss history (negative ELBO)
@@ -244,6 +290,9 @@ if __name__ == "__main__":
                         test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
                         np.save(forecasts_path, test_forecasts)
 
+                        # plot some reconstructions and forecasts
+                        plot_some_reconstructions_and_forecasts(config, model, device, player_idx, step)
+                        
             # Save loss history (negative ELBO)
             loss_history_path=os.path.join(config["train_history_dir"], f"loss_history__n_train_{n_train_games}__player_{player_idx}__step_{step}.npy")
             np.save(loss_history_path, loss_history)

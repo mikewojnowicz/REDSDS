@@ -16,8 +16,8 @@ model_dir: ./results/basketball/{timestamp}/models/
 train_history_dir: ./results/basketball/{timestamp}/train_history/
 forecasts_dir: ./results/basketball/{timestamp}/forecasts/
 log_dir: ./results/basketball/{timestamp}/logs/
-log_steps: 2500
-save_steps: 2500
+log_steps: 1000 #2500
+save_steps: 1000 #2500
 num_categories: 10
 warmup_steps_lr: 1000
 num_steps: 30000   # must exceed warmup_steps_lr 
