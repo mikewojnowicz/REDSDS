@@ -9,6 +9,8 @@ from typing import List, Optional
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+from src.basketball.examples import get_start_and_stop_timestep_idxs_from_event_idx
+
 class Basketball_Dataset_Train(Dataset):
     """
     Create a dataset which has __getitem__ defined to give a batch in the form expected by RED-SDS
@@ -126,6 +128,47 @@ def get_basketball_test_start_and_stop_idxs():
 
     return start_idxs, stop_idxs
 
+
+def FROM_OTHER_REPO_REMOVE_make_context_sets_in_meters(past_length) -> torch.Tensor:
+    """
+    context sets looks like past_trajs
+    has shape:   (num_examples, num_players_plus_ball=11, past_length, court_dims=2)
+    """
+
+    """load stuff to make forecast"""
+    coords_filepath = os.path.join(DATA_DIR, "player_coords_test__with_5_games.npy")
+    example_stop_idxs_filepath = os.path.join(DATA_DIR, "example_stop_idxs_test__with_5_games.npy")
+    random_context_times_filepath = os.path.join(DATA_DIR, "random_context_times.npy")
+
+    xs_test = np.load(coords_filepath)
+    example_end_times_test = np.load(example_stop_idxs_filepath)
+    random_context_times = np.load(random_context_times_filepath)
+
+    """ make forecasts"""
+    event_idxs_to_analyze = [
+        i for (i, random_context_time) in enumerate(random_context_times) if not np.isnan(random_context_time)
+    ]
+
+    num_examples = len(event_idxs_to_analyze)
+    num_players = 10 
+    num_players_plus_ball=11
+    court_dims=2
+
+    context_sets_normalized = np.zeros((num_examples, num_players_plus_ball, past_length, court_dims))
+
+    for e, event_idx_to_analyze in enumerate(event_idxs_to_analyze):
+        start_idx, stop_idx = get_start_and_stop_timestep_idxs_from_event_idx(
+            example_end_times_test, event_idx_to_analyze
+        )
+        xs_test_example = xs_test[start_idx:stop_idx]
+        T_context = int(random_context_times[event_idx_to_analyze])
+
+        context_sets_normalized[e:,:num_players] = xs_test_example[T_context-past_length: T_context].swapaxes(0,1) # pre-swap shape (T,J,D); post-swap: (J,T,D)
+
+    context_sets = unnormalize_coords_to_meters(context_sets_normalized)
+    return torch.Tensor(context_sets)
+
+
 def make_basketball_dataset_test__as_list(n_players: int, player_idx: Optional[int]=None) -> List[torch.Tensor]:    
     """
     Returns:
@@ -161,3 +204,69 @@ def make_basketball_dataset_test__as_list(n_players: int, player_idx: Optional[i
             coords_clip = coords[start_idx:stop_idx, player_idx][:,None,:] #shape (T, J, D)
         test_set_list[e]=torch.Tensor(coords_clip).reshape(1,T_example, total_dim)
     return test_set_list
+
+def make_basketball_dataset_test_context_set__as_list(n_players: int, player_idx: Optional[int]=None) -> List[torch.Tensor]:    
+    """
+    Returns:
+        List of 78 examples.  Each list element is an torch Tensor of shape
+            (T_e, J*D),
+        where 
+            T_e is the number of timesteps in that example, 
+            J is the number of players,
+            D is the court dimension (2)
+    """
+    if n_players!=1:
+        raise NotImplementedError(f"This used to be implemented, but it got phased out. "
+                                  f"It needs to be brought back in.  That is, as of now, "
+                                  f"we're using the independent entity-to-system strategy.")
+    if player_idx is None:
+        raise NotImplementedError(f"Current implementation assumes n_players=1, "
+                                  f"so we need to specify which player_idx to train on.")
+
+    coords_filepath = os.path.join(DATA_DIR, "player_coords_test__with_5_games.npy")
+    example_stop_idxs_filepath = os.path.join(DATA_DIR, "example_stop_idxs_test__with_5_games.npy")
+    random_context_times_filepath = os.path.join(DATA_DIR, "random_context_times.npy")
+
+    coords = np.load(coords_filepath)
+    example_end_times_test  = np.load(example_stop_idxs_filepath)
+    random_context_times = np.load(random_context_times_filepath)
+
+    event_idxs_to_analyze = [
+        i for (i, random_context_time) in enumerate(random_context_times) if not np.isnan(random_context_time)
+    ]
+
+    # TODO: don't hardcode past_length
+    num_examples = len(event_idxs_to_analyze)
+    num_players_total = 10 
+    court_dims = 2
+    past_length = 20 
+
+    context_sets_all_players = np.zeros((num_examples, num_players_total, past_length, court_dims))
+
+    for e, event_idx_to_analyze in enumerate(event_idxs_to_analyze):
+        start_idx, stop_idx = get_start_and_stop_timestep_idxs_from_event_idx(
+            example_end_times_test, event_idx_to_analyze
+        )
+        xs_test_example = coords[start_idx:stop_idx]
+        T_context = int(random_context_times[event_idx_to_analyze])
+        context_sets_all_players[e:] = xs_test_example[T_context-past_length: T_context].swapaxes(0,1) # pre-swap shape (T,J,D); post-swap: (J,T,D)
+
+    # context sets looks like past_trajs
+    # has shape:   (num_examples, num_players_total=10, past_length, court_dims=2)
+    # 
+    # for consistency with how the rest of the code in this repo is structured,
+    # here i convert to a list of E examples where each example has shape
+    #   (n_players, past_length, dim_of_court)
+    # where `n_players` is the num of players used to train this model.  as of now we are forcing
+    # n_players=1 as the only valid argument, so we train on one player at a time.
+    #
+    # the wrapping list is legacy construction, as previously each example was allowed
+    # to have a different length 
+
+    total_dim =  n_players * court_dims  # `n_players` is the num of players used to train this model
+
+    context_set_list = [None]*num_examples
+    for e in range(num_examples):
+        coords_clip = context_sets_all_players[e,player_idx] # shape (past_length, D)
+        context_set_list[e]=torch.Tensor(coords_clip).reshape(1,past_length, total_dim)
+    return context_set_list

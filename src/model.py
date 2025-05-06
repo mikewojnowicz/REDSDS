@@ -517,12 +517,15 @@ class SNLDS(Base):
         deterministic_y: bool = False,
         mean_prediction: bool = False,
         basketball: bool = True, 
+        y_is_already_restricted_to_context_set: bool = False, 
     ):
         if mean_prediction:
             num_samples = 1
         self.eval()
-        if basketball:
+        if basketball and not y_is_already_restricted_to_context_set:
             y=y[..., :-self.prediction_length, :]
+        elif basketball and y_is_already_restricted_to_context_set:
+            y=y
         else:
             y = y[..., : self.context_length, :]
         eps = get_precision(y)

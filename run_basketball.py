@@ -15,6 +15,7 @@ from src.model_utils import build_model
 from src.basketball.dataset import (
     make_basketball_dataset_train, 
     make_basketball_dataset_test__as_list,
+    make_basketball_dataset_test_context_set__as_list,
 )
 
 debug_mode_for_training = False
@@ -116,6 +117,14 @@ def plot_some_reconstructions_and_forecasts(config, model, device, player_idx, s
             plt.close("all")
 
 def make_test_forecasts(config, model, device, n_players, player_idx):
+    """
+    Compared to `make_test_forecasts_from_context_set`, this is what we run 
+    if we want to keep around both the context AND the ground truth in the forecasting window,
+    so that we can plot those along with the model's reconstructions and forecasts.  
+    
+    Another difference from `make_test_forecasts_from_context_set` is that here the contexts
+    have variable length, and are longer. 
+    """
     # setup format for return value
     E,D = 78,2
     J = n_players
@@ -131,6 +140,7 @@ def make_test_forecasts(config, model, device, n_players, player_idx):
                 test_example.to(device),
                 num_samples=config["forecast"]["num_samples"],
                 basketball=True,
+                y_is_already_restricted_to_context_set=False, 
         )
         # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
         #       This seems to be the z probs in the forecast range.
@@ -143,6 +153,43 @@ def make_test_forecasts(config, model, device, n_players, player_idx):
         test_forecasts[e]=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
     
     return test_forecasts
+
+def make_test_forecasts_from_context_set(config, model, device, n_players, player_idx):
+    """
+    Compared to `make_test_forecasts`,
+    this is what we need to call for consistency with how other models were evaluted.
+    This verion just feeds in the particular contexts (with random start times, of fixed
+    length) that were given to the other models.
+    """
+    # setup format for return value
+    E,D = 78,2
+    J = n_players
+    S = config["forecast"]["num_samples"]
+    T_pred =config["prediction_length"]
+    test_forecasts = np.zeros((E, S, T_pred, J, D ))
+
+    # Get the preset 78 examples test set examples with hardcoded start/stop indices.    
+    test_dataset_contexts__list = make_basketball_dataset_test_context_set__as_list(n_players=config["n_players"], player_idx=player_idx) 
+    for e, test_example__context_only in enumerate(test_dataset_contexts__list):
+        test_example__context_only = test_example__context_only.to(device)
+        result_dict = model.predict(
+                test_example__context_only.to(device),
+                num_samples=config["forecast"]["num_samples"],
+                basketball=True,
+                y_is_already_restricted_to_context_set=True,
+        )
+        # Rk: I don't think we have any use for result_dict["z_emp_probs"]?
+        #       This seems to be the z probs in the forecast range.
+
+        # here we reshape the array.  in the return value
+        # one example has dimension (S, batch_dim=1, T_pred, JXD).
+        # as implied by the init above, we want the whole thing to be (E, S, T_pred, J, D ).
+        # test_forecasts__reversed =result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+        # test_forecasts[e]=test_forecasts__reversed[:,torch.arange(T_pred - 1, -1, -1),:,:]
+        test_forecasts[e]=result_dict["forecast"][:,0].reshape(S,  T_pred, J,D )
+    
+    return test_forecasts
+
 
 
 if __name__ == "__main__":
@@ -287,7 +334,7 @@ if __name__ == "__main__":
                         # Save test set forecasts 
                         model_name=config["model"]
                         forecasts_path=os.path.join(config["log_dir"], f"forecasts_test__{model_name}__n_train_{n_train_games}__step_{step}_player_{player_idx}.npy")
-                        test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
+                        test_forecasts=make_test_forecasts_from_context_set(config, model, device, n_players=config["n_players"], player_idx=player_idx)
                         np.save(forecasts_path, test_forecasts)
 
                         # plot some reconstructions and forecasts
@@ -313,7 +360,7 @@ if __name__ == "__main__":
 
 
             # Make and save test set forecasts 
-            test_forecasts=make_test_forecasts(config, model, device, n_players=config["n_players"], player_idx=player_idx)
+            test_forecasts=make_test_forecasts_from_context_set(config, model, device, n_players=config["n_players"], player_idx=player_idx)
             model_name=config["model"]
             forecasts_path=os.path.join(config["forecasts_dir"], f"forecasts_test__{model_name}__n_train_{n_train_games}__step_{step}__player_{player_idx}.npy")
             np.save(forecasts_path, test_forecasts)
