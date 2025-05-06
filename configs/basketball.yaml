@@ -21,7 +21,7 @@ log_steps: 1000 #2500
 save_steps: 1000 #2500
 num_categories: 10
 warmup_steps_lr: 1000
-num_steps: 60000 #30000   # must exceed warmup_steps_lr 
+num_steps: 75000 #30000   # must exceed warmup_steps_lr 
 num_samples: 1 #5 #30
 objective: elbov2
 flat_learning_rate: false

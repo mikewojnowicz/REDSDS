@@ -16,7 +16,9 @@ Goal:
         (E,S,T_pred,J,D) = (78,20,30,10,2)
 """
 
-forecasts_dir="results/basketball/2025_04_29_182232/forecasts/"
+forecasts_dir="results/basketball/basketball_post_multivariate_forecasting_bug_fix/forecasts/"
+#forecasts_dir="results/basketball/2025_05_05_174256/forecasts/"
+
 
 for n_train in [1,5,20]:
 
