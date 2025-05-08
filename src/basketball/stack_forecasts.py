@@ -16,15 +16,12 @@ Goal:
         (E,S,T_pred,J,D) = (78,20,30,10,2)
 """
 
-forecasts_dir="results/basketball/2025_05_06_111833/forecasts"
-
-
-for n_train in [1,5,20]:
-
+def stack_forecasts(forecasts_dir: str, n_train: int) -> None:
+    # Function 
     E,S,T_pred,J,D = 78,20,30,10,2
     forecasts_test=np.zeros((E,S,T_pred,J,D))
 
-    for j in range(10):
+    for j in range(5):
         basename=f"forecasts_test__SNLDS__n_train_{n_train}__step_20000__player_{j}.npy"
         path=os.path.join(forecasts_dir,basename)
         forecasts_test_for_player_j=np.load(path) # shape (78, 20, 30, 1, 2)
@@ -33,3 +30,19 @@ for n_train in [1,5,20]:
     basename_stacked=f"forecasts_test__SNLDS__n_train_{n_train}__step_20000_all_players_individ_strat.npy"
     save_path_stacked=os.path.join(forecasts_dir,basename_stacked)
     np.save(save_path_stacked,forecasts_test)
+
+
+###
+# Main 
+###
+forecasts_dir="results/basketball/basketball_TMLR_rebuttal_n_train_games__1/forecasts"
+n_train = 1 
+stack_forecasts(forecasts_dir, n_train)
+
+forecasts_dir="results/basketball/basketball_TMLR_rebuttal_n_train_games__5_and_20/forecasts"
+n_train = 5 
+stack_forecasts(forecasts_dir, n_train)
+
+forecasts_dir="results/basketball/basketball_TMLR_rebuttal_n_train_games__5_and_20/forecasts"
+n_train = 20
+stack_forecasts(forecasts_dir, n_train)
