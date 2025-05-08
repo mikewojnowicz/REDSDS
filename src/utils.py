@@ -131,7 +131,11 @@ def get_config_and_setup_dirs(filename="config.yaml"):
 
     config["log_dir"] = config["log_dir"].format(timestamp=timestamp)
     config["model_dir"] = config["model_dir"].format(timestamp=timestamp)
+    config["forecasts_dir"] = config["forecasts_dir"].format(timestamp=timestamp)
+    config["train_history_dir"] = config["train_history_dir"].format(timestamp=timestamp)
     os.makedirs(config["log_dir"])
     os.makedirs(config["model_dir"])
+    os.makedirs(config["forecasts_dir"])
+    os.makedirs(config["train_history_dir"])
 
     return config

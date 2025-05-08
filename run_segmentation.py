@@ -26,7 +26,9 @@ from src.model_utils import build_model
 from src.evaluation import evaluate_segmentation
 from src.torch_utils import torch2numpy
 
-available_datasets = {"bouncing_ball", "3modesystem", "bee"}
+from src.basketball.dataset import make_basketball_dataset
+
+available_datasets = {"bouncing_ball", "3modesystem", "bee", "basketball"}
 
 
 def train_step(batch, model, optimizer, step, config):
@@ -135,6 +137,11 @@ def get_dataset(dataset):
     elif dataset == "bee":
         train_dataset = datasets.BeeDataset(path="./data/bee.npz")
         test_dataset = datasets.BeeDataset(path="./data/bee_test.npz")
+    elif dataset == "basketball":
+        # TODO: Add other training lengths besides one game
+        # TODO: make traj_length a parameter
+        train_dataset = make_basketball_dataset(data_type="train_1", traj_length=15) 
+        test_dataset = make_basketball_dataset(data_type="test", traj_length=15) 
     return train_dataset, test_dataset
 
 
@@ -152,7 +159,17 @@ if __name__ == "__main__":
         default="cpu",
         help="Which device to use, e.g., cpu, cuda:0, cuda:1, ...",
     )
-    args = parser.parse_args()
+    
+    # Actual CLI input
+    # args = parser.parse_args()
+
+    # Simulate CLI input
+    args = parser.parse_args(["--config", "configs/basketball.yaml", "--device", "cpu"])
+    #args = parser.parse_args(["--config", "configs/bee_duration.yaml", "--device", "cpu"])
+
+
+    # Inspect
+    print(args)
 
     # CONFIG
     if args.ckpt:
@@ -166,7 +183,8 @@ if __name__ == "__main__":
 
     # DATA
     train_dataset, test_dataset = get_dataset(config["dataset"])
-    num_workers = 0 if config["dataset"] == "bee" else 4
+    # TODO: check if we can run basketball with more workers.
+    num_workers = 0 if (config["dataset"] == "bee" or config["dataset"] == "basketball") else 4
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=config["batch_size"],

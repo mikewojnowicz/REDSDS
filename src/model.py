@@ -326,6 +326,7 @@ class SNLDS(Base):
         cont_ent_anneal: float = 1.0,
         num_samples: int = 1,
         deterministic_inference: bool = False,
+        force_breakpoint: bool = False,
     ):
         y = y[:, : self.context_length, :]
         eps = get_precision(y)
@@ -419,6 +420,10 @@ class SNLDS(Base):
         )
         #  Reconstruct the observations for visualization.
         recons_y = self.get_reconstruction(x_samples).view([num_samples, B, T, -1])
+        if force_breakpoint:
+            print("forcing breakpoint")
+            breakpoint()
+            
         #   Compute the KL between the discrete prior and gamma.
         crossent_regularizer = (
             torch.einsum("ijk, k -> ij", log_gamma, self.discrete_prior).sum(1).mean(0)
@@ -511,12 +516,20 @@ class SNLDS(Base):
         deterministic_x: bool = False,
         deterministic_y: bool = False,
         mean_prediction: bool = False,
+        basketball: bool = True, 
+        y_is_already_restricted_to_context_set: bool = False, 
     ):
         if mean_prediction:
             num_samples = 1
         self.eval()
-        y = y[..., : self.context_length, :]
+        if basketball and not y_is_already_restricted_to_context_set:
+            y=y[..., :-self.prediction_length, :]
+        elif basketball and y_is_already_restricted_to_context_set:
+            y=y
+        else:
+            y = y[..., : self.context_length, :]
         eps = get_precision(y)
+
         # Scale and shift input
         if self.transform_target:
             with torch.no_grad():
@@ -547,12 +560,14 @@ class SNLDS(Base):
                 n_timesteps=self.context_length,
                 feat_time=ctrl_inputs["past_time_feat"],
             )
+
         #  Infer the latent state x[1:T]
         x_samples, _, _ = self.inference_network(
             y, ctrl_feats, num_samples=num_samples, deterministic=mean_prediction
         )
         _, B, T, x_dim = x_samples.shape
         x_samples = x_samples.view(num_samples * B, T, x_dim)
+        
         #  Repeat the first dim num_samples times to allow broadcast
         #  with x_samples.
         y_tiled = y.repeat(num_samples, 1, 1)
@@ -595,6 +610,7 @@ class SNLDS(Base):
                 n_timesteps=self.prediction_length,
                 feat_time=ctrl_inputs["future_time_feat"],
             ).repeat(num_samples, 1, 1)
+
         #  Unroll using zT and xT
         forecast, z_samples = self._unroll(
             start_state=(zT, xT),
@@ -618,7 +634,7 @@ class SNLDS(Base):
         if self.transform_target:
             with torch.no_grad():
                 rec_y_with_forecast = target_transformer(rec_y_with_forecast)
-        return dict(rec_n_forecast=rec_y_with_forecast, z_emp_probs=z_emp_probs)
+        return dict(forecast=forecast, z_emp_probs=z_emp_probs, rec_y_with_forecast=rec_y_with_forecast)
 
 
 class REDSDS(Base):
@@ -748,6 +764,7 @@ class REDSDS(Base):
         cont_ent_anneal: float = 1.0,
         num_samples: int = 1,
         deterministic_inference: bool = False,
+        force_breakpoint: bool = False,
     ):
         y = y[:, : self.context_length, :]
         eps = get_precision(y)
@@ -854,6 +871,9 @@ class REDSDS(Base):
         )
         #  Reconstruct the observations for visualization.
         recons_y = self.get_reconstruction(x_samples).view([num_samples, B, T, -1])
+        if force_breakpoint:
+            print("forcing breakpoint")
+            breakpoint()
         #   Compute the KL between the discrete prior and gamma.
         crossent_regularizer = (
             torch.einsum("ijk, k -> ij", log_z_posterior, self.discrete_prior)
@@ -970,11 +990,16 @@ class REDSDS(Base):
         deterministic_x: bool = False,
         deterministic_y: bool = False,
         mean_prediction: bool = False,
+        basketball: bool = True, 
+
     ):
         if mean_prediction:
             num_samples = 1
         self.eval()
-        y = y[..., : self.context_length, :]
+        if basketball:
+            y=y[..., -self.prediction_length:, :]
+        else:
+            y = y[..., : self.context_length, :]
         eps = get_precision(y)
         # Scale and shift input
         if self.transform_target:

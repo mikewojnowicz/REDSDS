@@ -177,6 +177,7 @@ def get_network_instances(config):
         or config["experiment"] == "3modesystem"
         or config["experiment"] == "bee"
         or config["experiment"] == "gts_univariate"
+        or config["experiment"] == "basketball"
     ):
         # Inference Network
         inf_ctrl_dim = (
